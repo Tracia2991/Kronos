@@ -43,6 +43,9 @@ Desktop.ini
 # Linux
 *~
 
+# Local Qlib provider dump (large; keep out of GitHub)
+qlib_bin/
+
 # Data files (large files)
 *.feather
 *.parquet

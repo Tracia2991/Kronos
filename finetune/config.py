@@ -1,5 +1,10 @@
 import os
 
+# 本文件所在目录 = finetune/；上一级 = 项目根（与 examples、model 同级）
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_BASE_DIR)
+
+
 class Config:
     """
     Configuration class for the entire project.
@@ -9,8 +14,8 @@ class Config:
         # =================================================================
         # Data & Feature Parameters
         # =================================================================
-        # TODO: Update this path to your Qlib data directory.
-        self.qlib_data_path = "~/.qlib/qlib_data/cn_data"
+        # Qlib 离线数据目录：内含 calendars/、instruments/、features/ 等（qlib.init 的 provider_uri）
+        self.qlib_data_path = os.path.normpath(os.path.join(_PROJECT_ROOT, "qlib_bin"))
         self.instrument = 'csi300'
 
         # Overall time range for data loading from Qlib.
@@ -37,8 +42,8 @@ class Config:
         self.test_time_range = ["2024-04-01", "2025-06-05"]
         self.backtest_time_range = ["2024-07-01", "2025-06-05"]
 
-        # TODO: Directory to save the processed, pickled datasets.
-        self.dataset_path = "./data/processed_datasets"
+        # 预处理生成的 train/val/test pickle，相对 finetune 固定目录，不依赖运行时的 cwd
+        self.dataset_path = os.path.join(_BASE_DIR, "data", "processed_datasets")
 
         # =================================================================
         # Training Hyperparameters
@@ -83,23 +88,19 @@ class Config:
         self.comet_tag = 'finetune_demo'
         self.comet_name = 'finetune_demo'
 
-        # Base directory for saving model checkpoints and results.
-        # Using a general 'outputs' directory is a common practice.
-        self.save_path = "./outputs/models"
+        self.save_path = os.path.join(_BASE_DIR, "outputs", "models")
         self.tokenizer_save_folder_name = 'finetune_tokenizer_demo'
         self.predictor_save_folder_name = 'finetune_predictor_demo'
         self.backtest_save_folder_name = 'finetune_backtest_demo'
 
-        # Path for backtesting results.
-        self.backtest_result_path = "./outputs/backtest_results"
+        self.backtest_result_path = os.path.join(_BASE_DIR, "outputs", "backtest_results")
 
         # =================================================================
         # Model & Checkpoint Paths
         # =================================================================
-        # TODO: Update these paths to your pretrained model locations.
-        # These can be local paths or Hugging Face Hub model identifiers.
-        self.pretrained_tokenizer_path = "path/to/your/Kronos-Tokenizer-base"
-        self.pretrained_predictor_path = "path/to/your/Kronos-small"
+        # 本地目录或 Hugging Face Hub 模型 ID（首次会从 Hub 拉取）
+        self.pretrained_tokenizer_path = "NeoQuasar/Kronos-Tokenizer-base"
+        self.pretrained_predictor_path = "NeoQuasar/Kronos-small"
 
         # Paths to the fine-tuned models, derived from the save_path.
         # These will be generated automatically during training.

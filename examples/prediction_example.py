@@ -1,7 +1,12 @@
-import pandas as pd
-import matplotlib.pyplot as plt
+import os
 import sys
-sys.path.append("../")
+
+import matplotlib.pyplot as plt
+import pandas as pd
+
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 from model import Kronos, KronosTokenizer, KronosPredictor
 
 
@@ -45,8 +50,9 @@ model = Kronos.from_pretrained("NeoQuasar/Kronos-small")
 # 2. Instantiate Predictor
 predictor = KronosPredictor(model, tokenizer, max_context=512)
 
-# 3. Prepare Data
-df = pd.read_csv("./data/XSHG_5min_600977.csv")
+# 3. Prepare Data：默认用仓库内测试样例；自备 K 线时请保持列名与 README 一致
+_csv = os.path.join(_ROOT, "tests", "data", "regression_input.csv")
+df = pd.read_csv(_csv)
 df['timestamps'] = pd.to_datetime(df['timestamps'])
 
 lookback = 400

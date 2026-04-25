@@ -1,8 +1,8 @@
 conda activate kronos
 
-/home/yangchunxiao/DL/Kronos_v？
+/home/yangchunxiao/DL/Kronos_ycx
 
-Kronos_v？/finetune/config.py 中需要配置，comet可以保存训练过程/loss图像
+Kronos_ycx/finetune/config.py 中需要配置，comet可以保存训练过程/loss图像
         self.comet_config = {
             # It is highly recommended to load secrets from environment variables
             # for security purposes. Example: os.getenv("COMET_API_KEY")
@@ -14,10 +14,13 @@ Kronos_v？/finetune/config.py 中需要配置，comet可以保存训练过程/l
 python finetune/qlib_data_preprocess.py
 
 python finetune/train_predictor.py
+torchrun --standalone --nproc_per_node=1 finetune/train_predictor.py 
 
-python finetune/qlib_test.py --device cuda:0   --tokenizer-path "/home/yangchunxiao/DL/Kronos_v？/outputs/models/predictor_run_20260417_114049/checkpoints/best_model"
+python finetune/qlib_test.py --device cuda:0   --tokenizer-path "/home/yangchunxiao/DL/Kronos_ycx/outputs/models/predictor_run_20260417_114049/checkpoints/best_model"
 
 python finetune/prediction_metrics.py \
-  --predictions-pkl /home/yangchunxiao/DL/Kronos_v？/outputs/backtest_results/backtest_run_20260417_123826/predictions.pkl
+  --predictions-pkl /home/yangchunxiao/DL/Kronos_ycx/outputs/backtest_results/backtest_run_20260417_123826/predictions.pkl
 
 tmux
+
+nvidia-smi

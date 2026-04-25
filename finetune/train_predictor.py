@@ -26,6 +26,24 @@ from utils.training_utils import (
 )
 
 
+def resolve_tokenizer_path(config: dict, rank: int) -> str:
+    """
+    Prefer fine-tuned tokenizer when available; otherwise fallback to pretrained tokenizer.
+    """
+    finetuned_path = config['finetuned_tokenizer_path']
+    pretrained_path = config['pretrained_tokenizer_path']
+
+    if os.path.isdir(finetuned_path):
+        if rank == 0:
+            print(f"Loading fine-tuned tokenizer from local path: {finetuned_path}")
+        return finetuned_path
+
+    if rank == 0:
+        print(f"Fine-tuned tokenizer not found at: {finetuned_path}")
+        print(f"Falling back to pretrained tokenizer: {pretrained_path}")
+    return pretrained_path
+
+
 def create_dataloaders(config: dict, rank: int, world_size: int):
     """
     Creates and returns distributed dataloaders for training and validation.
@@ -210,7 +228,8 @@ def main(config: dict):
     dist.barrier()
 
     # Model Initialization
-    tokenizer = KronosTokenizer.from_pretrained(config['finetuned_tokenizer_path'])
+    tokenizer_path = resolve_tokenizer_path(config, rank)
+    tokenizer = KronosTokenizer.from_pretrained(tokenizer_path)
     tokenizer.eval().to(device)
 
     model = Kronos.from_pretrained(config['pretrained_predictor_path'])

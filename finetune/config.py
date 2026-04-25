@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 
 class Config:
     """
@@ -6,11 +7,17 @@ class Config:
     """
 
     def __init__(self):
+        # Use a shared run tag to version outputs.
+        # If KRONOS_RUN_TAG is not set, a timestamp is generated automatically.
+        # Set KRONOS_RUN_TAG manually before both tokenizer/predictor training
+        # to ensure they read/write the same run directory.
+        self.run_tag = os.getenv("KRONOS_RUN_TAG", datetime.now().strftime("%Y%m%d_%H%M%S"))
+
         # =================================================================
         # Data & Feature Parameters
         # =================================================================
         # TODO: Update this path to your Qlib data directory.
-        self.qlib_data_path = "~/.qlib/qlib_data/cn_data"
+        self.qlib_data_path = "/home/yangchunxiao/DL/data/qlib_bin"
         self.instrument = 'csi300'
 
         # Overall time range for data loading from Qlib.
@@ -33,12 +40,12 @@ class Config:
         # Note: The validation/test set starts earlier than the training/validation set ends
         # to account for the `lookback_window`.
         self.train_time_range = ["2011-01-01", "2022-12-31"]
-        self.val_time_range = ["2022-09-01", "2024-06-30"]
+        self.val_time_range = ["2022-10-01", "2024-06-30"]
         self.test_time_range = ["2024-04-01", "2025-06-05"]
         self.backtest_time_range = ["2024-07-01", "2025-06-05"]
 
         # TODO: Directory to save the processed, pickled datasets.
-        self.dataset_path = "./data/processed_datasets"
+        self.dataset_path = "/home/yangchunxiao/DL/data/processed_datasets"
 
         # =================================================================
         # Training Hyperparameters
@@ -76,9 +83,9 @@ class Config:
         self.comet_config = {
             # It is highly recommended to load secrets from environment variables
             # for security purposes. Example: os.getenv("COMET_API_KEY")
-            "api_key": "YOUR_COMET_API_KEY",
+            "api_key": "d8lYdr33rx4gjjEkWwZG3nfuD",
             "project_name": "Kronos-Finetune-Demo",
-            "workspace": "your_comet_workspace" # TODO: Change to your Comet ML workspace name
+            "workspace": "tracia-yang" # TODO: Change to your Comet ML workspace name
         }
         self.comet_tag = 'finetune_demo'
         self.comet_name = 'finetune_demo'
@@ -86,9 +93,9 @@ class Config:
         # Base directory for saving model checkpoints and results.
         # Using a general 'outputs' directory is a common practice.
         self.save_path = "./outputs/models"
-        self.tokenizer_save_folder_name = 'finetune_tokenizer_demo'
-        self.predictor_save_folder_name = 'finetune_predictor_demo'
-        self.backtest_save_folder_name = 'finetune_backtest_demo'
+        self.tokenizer_save_folder_name = f'finetune_tokenizer_{self.run_tag}'
+        self.predictor_save_folder_name = f'finetune_predictor_{self.run_tag}'
+        self.backtest_save_folder_name = f'finetune_backtest_{self.run_tag}'
 
         # Path for backtesting results.
         self.backtest_result_path = "./outputs/backtest_results"
@@ -98,8 +105,8 @@ class Config:
         # =================================================================
         # TODO: Update these paths to your pretrained model locations.
         # These can be local paths or Hugging Face Hub model identifiers.
-        self.pretrained_tokenizer_path = "path/to/your/Kronos-Tokenizer-base"
-        self.pretrained_predictor_path = "path/to/your/Kronos-small"
+        self.pretrained_tokenizer_path = "/home/yangchunxiao/DL/data/hf_hub/models--NeoQuasar--Kronos-Tokenizer-base/snapshots/0e0117387f39004a9016484a186a908917e22426"
+        self.pretrained_predictor_path = "/home/yangchunxiao/DL/data/hf_hub/models--NeoQuasar--Kronos-small/snapshots/901c26c1332695a2a8f243eb2f37243a37bea320"
 
         # Paths to the fine-tuned models, derived from the save_path.
         # These will be generated automatically during training.

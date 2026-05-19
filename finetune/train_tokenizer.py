@@ -249,8 +249,27 @@ def main(config: dict):
 
     # Model Initialization
     model = KronosTokenizer.from_pretrained(config['pretrained_tokenizer_path'])
+
+    # 手动开启RVQ
+    if config.get('use_rvq', False):
+        from model.rvq_quantizer import KronosRVQQuantizer
+    model.use_rvq = True
+    model.rvq_num_quantizers = config.get('rvq_num_quantizers', 2)
+    model.rvq_codebook_size = config.get('rvq_codebook_size', 256)
+    model.rvq_quantizer = KronosRVQQuantizer(
+        dim=model.codebook_dim,
+        num_quantizers=config.get('rvq_num_quantizers', 2),
+        codebook_size=config.get('rvq_codebook_size', 256),
+        codebook_dim=config.get('rvq_codebook_dim', 16),
+        quantize_dropout=0.1,
+    )
+    model.rvq_post_quant_pre = torch.nn.Linear(
+        model.codebook_dim, model.d_model
+    )
+    print("RVQ已启用！")
+
     model.to(device)
-    model = DDP(model, device_ids=[local_rank], find_unused_parameters=False)
+    model = DDP(model, device_ids=[local_rank], find_unused_parameters=True)
 
     if rank == 0:
         print(f"Model Size: {get_model_size(model.module)}")

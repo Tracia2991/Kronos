@@ -149,7 +149,11 @@ class CustomFinetuneConfig:
         self.adam_beta2 = training_config.get('adam_beta2', 0.95)
         self.adam_weight_decay = training_config.get('adam_weight_decay', 0.1)
         self.accumulation_steps = training_config.get('accumulation_steps', 1)
-        
+        self.use_rvq = training_config.get('use_rvq', False)
+        self.rvq_num_quantizers = training_config.get('rvq_num_quantizers', 4)
+        self.rvq_codebook_size = training_config.get('rvq_codebook_size', 256)
+        self.rvq_codebook_dim = training_config.get('rvq_codebook_dim', 16)
+
         model_paths = self.loader.get_model_paths()
         self.exp_name = model_paths.get('exp_name', 'default_experiment')
         self.pretrained_tokenizer_path = model_paths.get('pretrained_tokenizer')

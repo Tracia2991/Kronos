@@ -106,7 +106,11 @@ class SequentialTrainer:
                 gamma0=arch.get('gamma0', 1.0),
                 gamma=arch.get('gamma', 1.1),
                 zeta=arch.get('zeta', 0.05),
-                group_size=arch.get('group_size', 4)
+                group_size=arch.get('group_size', 4),
+                use_rvq=getattr(self.config, 'use_rvq', False),
+                rvq_num_quantizers=getattr(self.config, 'rvq_num_quantizers', 4),
+                rvq_codebook_size=getattr(self.config, 'rvq_codebook_size', 256),
+                rvq_codebook_dim=getattr(self.config, 'rvq_codebook_dim', 16),
             )
         tokenizer = tokenizer.to(self.device)
         
@@ -192,7 +196,11 @@ class SequentialTrainer:
                 gamma0=arch.get('gamma0', 1.0),
                 gamma=arch.get('gamma', 1.1),
                 zeta=arch.get('zeta', 0.05),
-                group_size=arch.get('group_size', 4)
+                group_size=arch.get('group_size', 4),
+                use_rvq=getattr(self.config, 'use_rvq', False),
+                rvq_num_quantizers=getattr(self.config, 'rvq_num_quantizers', 4),
+                rvq_codebook_size=getattr(self.config, 'rvq_codebook_size', 256),
+                rvq_codebook_dim=getattr(self.config, 'rvq_codebook_dim', 16),
             )
         tokenizer = tokenizer.to(self.device)
         

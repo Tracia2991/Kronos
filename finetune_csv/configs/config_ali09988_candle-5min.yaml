@@ -20,6 +20,11 @@ training:
   log_interval: 50
   num_workers: 6
   seed: 42
+
+  use_rvq: true
+  rvq_num_quantizers: 4
+  rvq_codebook_size: 256
+  rvq_codebook_dim: 16
   
   tokenizer_learning_rate: 0.0002
   predictor_learning_rate: 0.000001

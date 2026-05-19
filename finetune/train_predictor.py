@@ -26,6 +26,24 @@ from utils.training_utils import (
 )
 
 
+def resolve_tokenizer_path(config: dict, rank: int) -> str:
+    """
+    Prefer fine-tuned tokenizer when available; otherwise fallback to pretrained tokenizer.
+    """
+    finetuned_path = config['finetuned_tokenizer_path']
+    pretrained_path = config['pretrained_tokenizer_path']
+
+    if os.path.isdir(finetuned_path):
+        if rank == 0:
+            print(f"Loading fine-tuned tokenizer from local path: {finetuned_path}")
+        return finetuned_path
+
+    if rank == 0:
+        print(f"Fine-tuned tokenizer not found at: {finetuned_path}")
+        print(f"Falling back to pretrained tokenizer: {pretrained_path}")
+    return pretrained_path
+
+
 def create_dataloaders(config: dict, rank: int, world_size: int):
     """
     Creates and returns distributed dataloaders for training and validation.
@@ -210,9 +228,27 @@ def main(config: dict):
     dist.barrier()
 
     # Model Initialization
-    tokenizer = KronosTokenizer.from_pretrained(config['finetuned_tokenizer_path'])
-    tokenizer.eval().to(device)
+    tokenizer_path = resolve_tokenizer_path(config, rank)
+    tokenizer = KronosTokenizer.from_pretrained(tokenizer_path)
 
+    if config.get('use_rvq', False):
+        from model.rvq_quantizer import KronosRVQQuantizer
+    tokenizer.use_rvq = True
+    tokenizer.rvq_num_quantizers = config.get('rvq_num_quantizers', 2)
+    tokenizer.rvq_codebook_size = config.get('rvq_codebook_size', 256)
+    tokenizer.rvq_quantizer = KronosRVQQuantizer(
+        dim=tokenizer.codebook_dim,
+        num_quantizers=config.get('rvq_num_quantizers', 2),
+        codebook_size=config.get('rvq_codebook_size', 256),
+        codebook_dim=config.get('rvq_codebook_dim', 16),
+        quantize_dropout=0.1,
+    )
+    tokenizer.rvq_post_quant_pre = torch.nn.Linear(
+        tokenizer.codebook_dim, tokenizer.d_model
+    )
+    print("RVQ已启用！")
+
+    tokenizer.eval().to(device)
     model = Kronos.from_pretrained(config['pretrained_predictor_path'])
     model.to(device)
     model = DDP(model, device_ids=[local_rank], find_unused_parameters=False)

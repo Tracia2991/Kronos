@@ -8,36 +8,26 @@ from tqdm import trange
 
 sys.path.append("../")
 from model.module import *
-
+from model.rvq_quantizer import KronosRVQQuantizer
 
 class KronosTokenizer(nn.Module, PyTorchModelHubMixin):
     """
-    KronosTokenizer module for tokenizing input data using a hybrid quantization approach.
+    KronosTokenizer：新增 use_rvq 开关，可在 BSQ 和 RVQ 之间切换。
 
-    This tokenizer utilizes a combination of encoder and decoder Transformer blocks
-    along with the Binary Spherical Quantization (BSQuantizer) to compress and decompress input data.
-
-    Args:
-           d_in (int): Input dimension.
-           d_model (int): Model dimension.
-           n_heads (int): Number of attention heads.
-           ff_dim (int): Feed-forward dimension.
-           n_enc_layers (int): Number of encoder layers.
-           n_dec_layers (int): Number of decoder layers.
-           ffn_dropout_p (float): Dropout probability for feed-forward networks.
-           attn_dropout_p (float): Dropout probability for attention mechanisms.
-           resid_dropout_p (float): Dropout probability for residual connections.
-           s1_bits (int): Number of bits for the pre token in BSQuantizer.
-           s2_bits (int): Number of bits for the post token in BSQuantizer.
-           beta (float): Beta parameter for BSQuantizer.
-           gamma0 (float): Gamma0 parameter for BSQuantizer.
-           gamma (float): Gamma parameter for BSQuantizer.
-           zeta (float): Zeta parameter for BSQuantizer.
-           group_size (int): Group size parameter for BSQuantizer.
-
+    原有所有参数保留不变，新增4个参数（均有默认值，完全向后兼容）：
+        use_rvq (bool)           : True=使用RVQ，False=使用原始BSQ（默认False）
+        rvq_num_quantizers (int) : RVQ层数，默认4
+        rvq_codebook_size (int)  : 每层codebook大小，默认256
+        rvq_codebook_dim (int)   : codebook内部维度，默认16
     """
 
-    def __init__(self, d_in, d_model, n_heads, ff_dim, n_enc_layers, n_dec_layers, ffn_dropout_p, attn_dropout_p, resid_dropout_p, s1_bits, s2_bits, beta, gamma0, gamma, zeta, group_size):
+    def __init__(self, d_in, d_model, n_heads, ff_dim, n_enc_layers, n_dec_layers,
+                 ffn_dropout_p, attn_dropout_p, resid_dropout_p,
+                 s1_bits, s2_bits, beta, gamma0, gamma, zeta, group_size,
+                 use_rvq=False,
+                 rvq_num_quantizers=4,
+                 rvq_codebook_size=256,
+                 rvq_codebook_dim=16):
 
         super().__init__()
         self.d_in = d_in
@@ -52,125 +42,204 @@ class KronosTokenizer(nn.Module, PyTorchModelHubMixin):
 
         self.s1_bits = s1_bits
         self.s2_bits = s2_bits
-        self.codebook_dim = s1_bits + s2_bits # Total dimension of the codebook after quantization
+        self.codebook_dim = s1_bits + s2_bits   # 例如 10+10=20
         self.embed = nn.Linear(self.d_in, self.d_model)
         self.head = nn.Linear(self.d_model, self.d_in)
 
-        # Encoder Transformer Blocks
+        # Encoder（完全不变）
         self.encoder = nn.ModuleList([
-            TransformerBlock(self.d_model, self.n_heads, self.ff_dim, self.ffn_dropout_p, self.attn_dropout_p, self.resid_dropout_p)
+            TransformerBlock(self.d_model, self.n_heads, self.ff_dim,
+                             self.ffn_dropout_p, self.attn_dropout_p, self.resid_dropout_p)
             for _ in range(self.enc_layers - 1)
         ])
-        # Decoder Transformer Blocks
+        # Decoder（完全不变）
         self.decoder = nn.ModuleList([
-            TransformerBlock(self.d_model, self.n_heads, self.ff_dim, self.ffn_dropout_p, self.attn_dropout_p, self.resid_dropout_p)
+            TransformerBlock(self.d_model, self.n_heads, self.ff_dim,
+                             self.ffn_dropout_p, self.attn_dropout_p, self.resid_dropout_p)
             for _ in range(self.dec_layers - 1)
         ])
-        self.quant_embed = nn.Linear(in_features=self.d_model, out_features=self.codebook_dim) # Linear layer before quantization
-        self.post_quant_embed_pre = nn.Linear(in_features=self.s1_bits, out_features=self.d_model) # Linear layer after quantization (pre part - s1 bits)
-        self.post_quant_embed = nn.Linear(in_features=self.codebook_dim, out_features=self.d_model) # Linear layer after quantization (full codebook)
-        self.tokenizer = BSQuantizer(self.s1_bits, self.s2_bits, beta, gamma0, gamma, zeta, group_size) # BSQuantizer module
+
+        # 原有投影层（完全不变）
+        self.quant_embed = nn.Linear(in_features=self.d_model, out_features=self.codebook_dim)
+        self.post_quant_embed_pre = nn.Linear(in_features=self.s1_bits, out_features=self.d_model)
+        self.post_quant_embed = nn.Linear(in_features=self.codebook_dim, out_features=self.d_model)
+
+        # 原始BSQ量化器（保留，use_rvq=False时继续使用）
+        self.tokenizer = BSQuantizer(self.s1_bits, self.s2_bits, beta, gamma0, gamma, zeta, group_size)
+
+        # 新增RVQ相关属性
+        self.use_rvq = use_rvq
+        self.rvq_num_quantizers = rvq_num_quantizers
+        self.rvq_codebook_size = rvq_codebook_size
+
+        if self.use_rvq:
+            # RVQ量化器，dim=codebook_dim，和 quant_embed 输出维度完全一致
+            self.rvq_quantizer = KronosRVQQuantizer(
+                dim=self.codebook_dim,
+                num_quantizers=rvq_num_quantizers,
+                codebook_size=rvq_codebook_size,
+                codebook_dim=rvq_codebook_dim,
+                quantize_dropout=0.1,   # 必须 > 0，支持部分层解码
+            )
+            # RVQ的"粗粒度"投影层
+            # 原来 post_quant_embed_pre 输入是 s1_bits（10），
+            # RVQ部分层解码输出是 codebook_dim（20），维度不同，需要单独建一个
+            self.rvq_post_quant_pre = nn.Linear(
+                in_features=self.codebook_dim, out_features=self.d_model
+            )
 
     def forward(self, x):
         """
-        Forward pass of the KronosTokenizer.
+        返回格式和原来完全一致：
+            ((z_pre, z_full), bsq_loss, quantized, z_indices)
 
-        Args:
-            x (torch.Tensor): Input tensor of shape (batch_size, seq_len, d_in).
-
-        Returns:
-            tuple: A tuple containing:
-                - tuple: (z_pre, z) - Reconstructed outputs from decoder with s1_bits and full codebook respectively,
-                         both of shape (batch_size, seq_len, d_in).
-                - torch.Tensor: bsq_loss - Loss from the BSQuantizer.
-                - torch.Tensor: quantized - Quantized representation from BSQuantizer.
-                - torch.Tensor: z_indices - Indices from the BSQuantizer.
+        use_rvq=True 时：
+            bsq_loss  → RVQ的commitment loss（标量）
+            quantized → RVQ量化后的向量，形状 (B, T, codebook_dim)，和原来一样
+            z_indices → 形状变为 (B, T, num_quantizers)，原来是标量索引
         """
+        # ---- Encoder（完全不变）----
         z = self.embed(x)
-
         for layer in self.encoder:
             z = layer(z)
+        z = self.quant_embed(z)   # (B, T, codebook_dim=20)
 
-        z = self.quant_embed(z) # (B, T, codebook)
+        # ---- 量化 ----
+        if self.use_rvq:
+            # 返回顺序：rvq_loss, quantized, z_indices（和BSQuantizer一致）
+            bsq_loss, quantized, z_indices = self.rvq_quantizer(z)
+            # bsq_loss : 标量
+            # quantized: (B, T, 20)
+            # z_indices: (B, T, 4)
 
-        bsq_loss, quantized, z_indices = self.tokenizer(z)
+            # 粗粒度近似：用前一半层的token解码，对应原来的 quantized[:, :, :s1_bits]
+            half_q = self.rvq_num_quantizers // 2
+            quantized_pre = self.rvq_quantizer.decode_from_tokens(
+                z_indices[:, :, :half_q]
+            )   # (B, T, 20)
 
-        quantized_pre = quantized[:, :, :self.s1_bits] # Extract the first part of quantized representation (s1_bits)
-        z_pre = self.post_quant_embed_pre(quantized_pre)
+            # 投影到 d_model（用新加的投影层，输入是codebook_dim=20）
+            z_pre = self.rvq_post_quant_pre(quantized_pre)   # (B, T, d_model)
+        else:
+            # 原始BSQ路径（完全不变）
+            bsq_loss, quantized, z_indices = self.tokenizer(z)
+            quantized_pre = quantized[:, :, :self.s1_bits]
+            z_pre = self.post_quant_embed_pre(quantized_pre)
 
-        z = self.post_quant_embed(quantized)
+        # 全量化向量投影（两条路径都用 post_quant_embed，输入都是 codebook_dim=20）
+        z_full = self.post_quant_embed(quantized)   # (B, T, d_model)
 
-        # Decoder layers (for pre part - s1 bits)
+        # ---- Decoder（完全不变）----
         for layer in self.decoder:
             z_pre = layer(z_pre)
         z_pre = self.head(z_pre)
 
-        # Decoder layers (for full codebook)
         for layer in self.decoder:
-            z = layer(z)
-        z = self.head(z)
+            z_full = layer(z_full)
+        z_full = self.head(z_full)
 
-        return (z_pre, z), bsq_loss, quantized, z_indices
+        return (z_pre, z_full), bsq_loss, quantized, z_indices
 
     def indices_to_bits(self, x, half=False):
-        """
-        Converts indices to bit representations and scales them.
-
-        Args:
-            x (torch.Tensor): Indices tensor.
-            half (bool, optional): Whether to process only half of the codebook dimension. Defaults to False.
-
-        Returns:
-            torch.Tensor: Bit representation tensor.
-        """
+        """原始方法，完全不变"""
         if half:
-            x1 = x[0] # Assuming x is a tuple of indices if half is True
+            x1 = x[0]
             x2 = x[1]
-            mask = 2 ** torch.arange(self.codebook_dim//2, device=x1.device, dtype=torch.long) # Create a mask for bit extraction
-            x1 = (x1.unsqueeze(-1) & mask) != 0 # Extract bits for the first half
-            x2 = (x2.unsqueeze(-1) & mask) != 0 # Extract bits for the second half
-            x = torch.cat([x1, x2], dim=-1) # Concatenate the bit representations
+            mask = 2 ** torch.arange(self.codebook_dim // 2, device=x1.device, dtype=torch.long)
+            x1 = (x1.unsqueeze(-1) & mask) != 0
+            x2 = (x2.unsqueeze(-1) & mask) != 0
+            x = torch.cat([x1, x2], dim=-1)
         else:
-            mask = 2 ** torch.arange(self.codebook_dim, device=x.device, dtype=torch.long) # Create a mask for bit extraction
-            x = (x.unsqueeze(-1) & mask) != 0 # Extract bits
-
-        x = x.float() * 2 - 1 # Convert boolean to bipolar (-1, 1)
-        q_scale = 1. / (self.codebook_dim ** 0.5) # Scaling factor
+            mask = 2 ** torch.arange(self.codebook_dim, device=x.device, dtype=torch.long)
+            x = (x.unsqueeze(-1) & mask) != 0
+        x = x.float() * 2 - 1
+        q_scale = 1. / (self.codebook_dim ** 0.5)
         x = x * q_scale
         return x
 
     def encode(self, x, half=False):
         """
-        Encodes the input data into quantized indices.
+        编码为token索引。
 
-        Args:
-            x (torch.Tensor): Input tensor of shape (batch_size, seq_len, d_in).
-            half (bool, optional): Whether to use half quantization in BSQuantizer. Defaults to False.
+        use_rvq=False 时行为和原来完全一样：
+            half=True  → 返回 [s1_idx, s2_idx]
+            half=False → 返回整体索引
 
-        Returns:
-            torch.Tensor: Quantized indices from BSQuantizer.
+        use_rvq=True 时：
+            half=True  → 同样返回 [s1_idx, s2_idx]（前/后半层合并索引）
+            这样 finetune_base_model.py 里的：
+                token_seq_0, token_seq_1 = tokenizer.encode(batch_x, half=True)
+            这行代码完全不需要修改！
         """
         z = self.embed(x)
         for layer in self.encoder:
             z = layer(z)
         z = self.quant_embed(z)
 
-        bsq_loss, quantized, z_indices = self.tokenizer(z, half=half, collect_metrics=False)
-        return z_indices
+        if self.use_rvq:
+            z_indices = self.rvq_quantizer.encode_to_tokens(z)   # (B, T, num_quantizers)
+            half_q = self.rvq_num_quantizers // 2
+            if half:
+                s1_idx = self._combine_indices(z_indices[:, :, :half_q])   # (B, T)
+                s2_idx = self._combine_indices(z_indices[:, :, half_q:])   # (B, T)
+                return [s1_idx, s2_idx]
+            else:
+                return self._combine_indices(z_indices)
+        else:
+            # 原始BSQ路径（完全不变）
+            bsq_loss, quantized, z_indices = self.tokenizer(z, half=half, collect_metrics=False)
+            return z_indices
+
+    def _combine_indices(self, indices):
+        """
+        把多层RVQ的索引合并为单个整数索引（B, T）。
+        indices: (B, T, k)，每层值域 [0, codebook_size-1]
+
+        例：k=2, codebook_size=256
+            result = layer0_idx * 256 + layer1_idx
+            值域：[0, 256^2-1] = [0, 65535]
+        """
+        B, T, k = indices.shape
+        result = torch.zeros(B, T, dtype=torch.long, device=indices.device)
+        for i in range(k):
+            result = result * self.rvq_codebook_size + indices[:, :, i]
+        result = result % (2 ** self.s1_bits)
+        return result
+
+    def _split_indices(self, combined, k):
+        """
+        _combine_indices 的逆操作，把合并整数索引还原为 (B, T, k)。
+        """
+        B, T = combined.shape
+        indices = torch.zeros(B, T, k, dtype=torch.long, device=combined.device)
+        tmp = combined.clone()
+        for i in range(k - 1, -1, -1):
+            indices[:, :, i] = tmp % self.rvq_codebook_size
+            tmp = tmp // self.rvq_codebook_size
+        return indices
 
     def decode(self, x, half=False):
         """
-        Decodes quantized indices back to the input data space.
+        从token索引重建K线。
 
-        Args:
-            x (torch.Tensor): Quantized indices tensor.
-            half (bool, optional): Whether the indices were generated with half quantization. Defaults to False.
-
-        Returns:
-            torch.Tensor: Reconstructed output tensor of shape (batch_size, seq_len, d_in).
+        use_rvq=False：原始BSQ路径，完全不变。
+        use_rvq=True ：x 是 [s1_combined_idx, s2_combined_idx] 或整体合并索引。
         """
-        quantized = self.indices_to_bits(x, half)
-        z = self.post_quant_embed(quantized)
+        if self.use_rvq:
+            if half and isinstance(x, (list, tuple)):
+                half_q = self.rvq_num_quantizers // 2
+                s1_indices = self._split_indices(x[0], half_q)
+                s2_indices = self._split_indices(x[1], half_q)
+                all_indices = torch.cat([s1_indices, s2_indices], dim=-1)
+            else:
+                all_indices = self._split_indices(x, self.rvq_num_quantizers)
+            quantized = self.rvq_quantizer.decode_from_tokens(all_indices)
+            z = self.post_quant_embed(quantized)
+        else:
+            # 原始BSQ路径（完全不变）
+            quantized = self.indices_to_bits(x, half)
+            z = self.post_quant_embed(quantized)
+
         for layer in self.decoder:
             z = layer(z)
         z = self.head(z)

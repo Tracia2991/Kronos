@@ -1,0 +1,8 @@
+{
+    "start_time": "2026-05-12T12-29-19",
+    "save_directory": "./outputs/models/finetune_predictor_20260512_202919",
+    "world_size": 1,
+    "final_result": {
+        "best_val_loss": 4.582338256835937
+    }
+}
